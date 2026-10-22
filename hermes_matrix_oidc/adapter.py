@@ -8,6 +8,7 @@ import logging
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 from hermes_constants import get_hermes_home
@@ -15,7 +16,7 @@ from gateway.platforms._shared import get_scoped_secret
 from plugins.platforms.matrix import adapter as upstream
 
 from .credentials import CredentialBundle, CredentialStore
-from .lifecycle import RefreshLifecycle
+from .lifecycle import RefreshLifecycle, SyncAuthRetryBudget
 
 logger = logging.getLogger("hermes_matrix_oidc")
 
@@ -60,19 +61,39 @@ def _is_auth_error(exc: BaseException) -> bool:
     return getattr(exc, "http_status", None) in {401, 403}
 
 
+def _refresh_stored_access_token(access_token: str) -> str:
+    store = _credential_store()
+    if store.load() is None:
+        seeded = _seed_bundle(access_token)
+        if seeded is None:
+            raise ValueError("No Matrix OIDC credential bundle is configured")
+        store.save(seeded)
+    return RefreshLifecycle(store, _post_form).refresh().access_token
+
+
+async def _standalone_send(pconfig, chat_id, message, *, thread_id=None, media_files=None, force_document=False):
+    """Refresh stored OAuth credentials before the bundled cron-delivery sender runs."""
+    try:
+        token = await asyncio.to_thread(_refresh_stored_access_token, getattr(pconfig, "token", "") or "")
+    except Exception as exc:
+        return upstream.send_error(f"Matrix OAuth refresh for standalone delivery failed: {exc}")
+    return await upstream._standalone_send(
+        SimpleNamespace(token=token, extra=getattr(pconfig, "extra", {}) or {}),
+        chat_id,
+        message,
+        thread_id=thread_id,
+        media_files=media_files,
+        force_document=force_document,
+    )
+
+
 class OIDCMatrixAdapter(upstream.MatrixAdapter):
     """The bundled Matrix adapter plus profile-scoped OAuth refresh-token rotation."""
 
     def _refresh_access_token(self) -> str:
-        store = _credential_store()
-        if store.load() is None:
-            seeded = _seed_bundle(self._access_token)
-            if seeded is None:
-                raise ValueError("No Matrix OIDC credential bundle is configured")
-            store.save(seeded)
-        refreshed = RefreshLifecycle(store, _post_form).refresh()
-        self._access_token = refreshed.access_token
-        return refreshed.access_token
+        token = _refresh_stored_access_token(self._access_token)
+        self._access_token = token
+        return token
 
     async def _refresh_access_token_async(self) -> str:
         return await asyncio.to_thread(self._refresh_access_token)
@@ -88,11 +109,13 @@ class OIDCMatrixAdapter(upstream.MatrixAdapter):
     async def _sync_loop(self) -> None:
         client = self._client
         next_batch = await client.sync_store.get_next_batch()
+        auth_retry = SyncAuthRetryBudget()
         while not self._closing:
             try:
                 sync_data = await asyncio.wait_for(client.sync(since=next_batch, timeout=30000), timeout=45.0)
                 if isinstance(sync_data, dict):
                     next_batch = await self._absorb_sync(client, sync_data) or next_batch
+                    auth_retry.reset_after_success()
                     await asyncio.sleep(0)
             except asyncio.CancelledError:
                 return
@@ -100,14 +123,21 @@ class OIDCMatrixAdapter(upstream.MatrixAdapter):
                 if self._closing:
                     return
                 if _is_auth_error(exc):
-                    try:
-                        token = await self._refresh_access_token_async()
-                        client.api.token = token
-                        logger.info("Matrix OAuth access token refreshed after sync authentication failure")
-                        continue
-                    except Exception as refresh_exc:
-                        logger.error("Matrix OAuth refresh after sync authentication failure failed: %s", refresh_exc)
+                    if not auth_retry.take():
+                        logger.error("Matrix OAuth refreshed token was rejected; stopping sync to avoid credential churn")
                         return
+                    while not self._closing:
+                        try:
+                            token = await self._refresh_access_token_async()
+                            client.api.token = token
+                            logger.info("Matrix OAuth access token refreshed after sync authentication failure")
+                            break
+                        except asyncio.CancelledError:
+                            return
+                        except Exception as refresh_exc:
+                            logger.warning("Matrix OAuth refresh failed; retrying in 5s: %s", refresh_exc)
+                            await asyncio.sleep(5)
+                    continue
                 logger.warning("Matrix: sync error: %s — retrying in 5s", exc)
                 await asyncio.sleep(5)
 
@@ -128,7 +158,7 @@ def register(ctx) -> None:
         allowed_users_env="MATRIX_ALLOWED_USERS",
         allow_all_env="MATRIX_ALLOW_ALL_USERS",
         cron_deliver_env_var="MATRIX_HOME_ROOM",
-        standalone_sender_fn=upstream._standalone_send,
+        standalone_sender_fn=_standalone_send,
         max_message_length=upstream.DEFAULT_MAX_MESSAGE_LENGTH,
         emoji="🔐",
         allow_update_command=True,

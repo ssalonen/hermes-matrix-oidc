@@ -8,6 +8,22 @@ from .credentials import CredentialBundle, CredentialStore
 from .oauth import FormPoster, refresh_bundle
 
 
+class SyncAuthRetryBudget:
+    """Permit one refreshed-token retry per successful sync response."""
+
+    def __init__(self) -> None:
+        self._used = False
+
+    def take(self) -> bool:
+        if self._used:
+            return False
+        self._used = True
+        return True
+
+    def reset_after_success(self) -> None:
+        self._used = False
+
+
 class RefreshLifecycle:
     """Refresh one stored credential bundle and persist its replacement before use."""
 
