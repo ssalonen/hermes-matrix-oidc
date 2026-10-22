@@ -9,6 +9,15 @@ retries a sync once after a structured Matrix authentication failure. Token
 rotation is stored atomically in the active profile under
 `platforms/matrix-oidc/credentials.json` with owner-only permissions.
 
+## Background
+
+This plugin is an independently maintained, no-fork implementation informed by
+[Hermes PR #94096](https://github.com/NousResearch/hermes-agent/pull/94096),
+which explored Matrix Authentication Service/OAuth refresh-token support but
+was closed without merging. It intentionally keeps the scope to delegated OAuth
+credential lifecycle rather than copying or modifying the bundled Matrix
+adapter.
+
 ## Requirements
 
 - Hermes with the Matrix platform extra and, for encrypted rooms, its E2EE
