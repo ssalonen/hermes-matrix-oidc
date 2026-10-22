@@ -32,9 +32,10 @@ class RefreshLifecycle:
         self._post_form = post_form
 
     def refresh(self) -> CredentialBundle:
-        current = self._store.load()
-        if current is None:
-            raise ValueError("No stored OAuth credential bundle")
-        refreshed = refresh_bundle(current, self._post_form)
-        self._store.save(refreshed)
-        return refreshed
+        with self._store.locked():
+            current = self._store.load()
+            if current is None:
+                raise ValueError("No stored OAuth credential bundle")
+            refreshed = refresh_bundle(current, self._post_form)
+            self._store.save(refreshed)
+            return refreshed

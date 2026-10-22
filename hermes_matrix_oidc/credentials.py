@@ -5,8 +5,14 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+
+_PROCESS_LOCKS: dict[Path, threading.Lock] = {}
+_PROCESS_LOCKS_GUARD = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -34,6 +40,29 @@ class CredentialStore:
 
     def __init__(self, path: Path) -> None:
         self.path = path
+
+    @contextmanager
+    def locked(self):
+        """Serialize a complete load/exchange/save transaction across threads and processes."""
+        resolved = self.path.resolve()
+        with _PROCESS_LOCKS_GUARD:
+            process_lock = _PROCESS_LOCKS.setdefault(resolved, threading.Lock())
+        with process_lock:
+            self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            lock_path = self.path.with_name(f".{self.path.name}.lock")
+            descriptor = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o600)
+            try:
+                os.fchmod(descriptor, 0o600)
+                if os.name == "posix":
+                    import fcntl
+                    fcntl.flock(descriptor, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    if os.name == "posix":
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
 
     def load(self) -> CredentialBundle | None:
         if not self.path.exists():
