@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-matrix-oidc"
+version = "0.1.0"
+description = "A no-fork OAuth 2.0 refresh extension for Hermes Matrix gateways."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+[tool.setuptools.packages.find]
+include = ["hermes_matrix_oidc*"]

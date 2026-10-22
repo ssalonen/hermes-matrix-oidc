@@ -1,0 +1,19 @@
+name: hermes-matrix-oidc
+label: Matrix OAuth Refresh
+kind: platform
+version: 0.1.0
+description: Refresh-token lifecycle support for Hermes Matrix gateways using delegated OAuth 2.0.
+author: Sami Salonen
+optional_env:
+  - name: MATRIX_OIDC_CLIENT_ID
+    description: OAuth public client identifier used for Matrix token refresh.
+    prompt: Matrix OAuth client ID
+    password: false
+  - name: MATRIX_OIDC_REFRESH_TOKEN
+    description: One-time bootstrap refresh token; later rotations are stored profile-scoped.
+    prompt: Matrix OAuth refresh token
+    password: true
+  - name: MATRIX_OIDC_TOKEN_ENDPOINT
+    description: OAuth token endpoint used for initial bootstrap.
+    prompt: Matrix OAuth token endpoint
+    password: false
