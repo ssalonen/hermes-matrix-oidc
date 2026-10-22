@@ -63,18 +63,22 @@ def _is_auth_error(exc: BaseException) -> bool:
 
 def _refresh_stored_access_token(access_token: str) -> str:
     store = _credential_store()
-    if store.load() is None:
-        seeded = _seed_bundle(access_token)
-        if seeded is None:
-            raise ValueError("No Matrix OIDC credential bundle is configured")
-        store.save(seeded)
+    with store.locked():
+        if store.load() is None:
+            seeded = _seed_bundle(access_token)
+            if seeded is None:
+                raise ValueError("No Matrix OIDC credential bundle is configured")
+            store.save(seeded)
     return RefreshLifecycle(store, _post_form).refresh().access_token
 
 
 async def _standalone_send(pconfig, chat_id, message, *, thread_id=None, media_files=None, force_document=False):
     """Refresh stored OAuth credentials before the bundled cron-delivery sender runs."""
     try:
-        token = await asyncio.to_thread(_refresh_stored_access_token, getattr(pconfig, "token", "") or "")
+        token = await asyncio.to_thread(
+            _refresh_stored_access_token,
+            getattr(pconfig, "token", "") or get_scoped_secret("MATRIX_ACCESS_TOKEN", ""),
+        )
     except Exception as exc:
         return upstream.send_error(f"Matrix OAuth refresh for standalone delivery failed: {exc}")
     return await upstream._standalone_send(
