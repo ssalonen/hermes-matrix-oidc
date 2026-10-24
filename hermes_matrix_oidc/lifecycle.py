@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from .credentials import CredentialBundle, CredentialStore
 from .oauth import FormPoster, refresh_bundle
 
