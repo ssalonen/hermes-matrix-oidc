@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping
 
 from .credentials import CredentialBundle
 
-
 FormPoster = Callable[[str, Mapping[str, str]], Mapping[str, object]]
 
 

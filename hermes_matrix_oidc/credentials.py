@@ -10,7 +10,6 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-
 _PROCESS_LOCKS: dict[Path, threading.Lock] = {}
 _PROCESS_LOCKS_GUARD = threading.Lock()
 

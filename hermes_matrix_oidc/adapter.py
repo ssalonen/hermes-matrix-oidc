@@ -7,13 +7,13 @@ import json
 import logging
 import urllib.parse
 import urllib.request
-from pathlib import Path
+from collections.abc import Mapping
 from types import SimpleNamespace
-from typing import Any, Mapping
 
-from hermes_constants import get_hermes_home
-from gateway.platforms._shared import get_scoped_secret
-from plugins.platforms.matrix import adapter as upstream
+# These modules are provided by the Hermes host, not installed with this plugin.
+from gateway.platforms._shared import get_scoped_secret  # ty: ignore[unresolved-import]
+from hermes_constants import get_hermes_home  # ty: ignore[unresolved-import]
+from plugins.platforms.matrix import adapter as upstream  # ty: ignore[unresolved-import]
 
 from .credentials import CredentialBundle, CredentialStore
 from .lifecycle import RefreshLifecycle, SyncAuthRetryBudget
@@ -34,7 +34,8 @@ def _post_form(url: str, form: Mapping[str, str]) -> dict[str, object]:
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.load(response)
     if not isinstance(payload, dict):
-        raise ValueError("OAuth token endpoint returned a non-object response")
+        # Invalid endpoint data retains the same validation error as other bad responses.
+        raise ValueError("OAuth token endpoint returned a non-object response")  # noqa: TRY004
     return payload
 
 
@@ -79,7 +80,7 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None, media_f
             _refresh_stored_access_token,
             getattr(pconfig, "token", "") or get_scoped_secret("MATRIX_ACCESS_TOKEN", ""),
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - Convert any refresh failure to a delivery error.
         return upstream.send_error(f"Matrix OAuth refresh for standalone delivery failed: {exc}")
     return await upstream._standalone_send(
         SimpleNamespace(token=token, extra=getattr(pconfig, "extra", {}) or {}),
@@ -105,7 +106,7 @@ class OIDCMatrixAdapter(upstream.MatrixAdapter):
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         try:
             await self._refresh_access_token_async()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Any refresh failure must prevent connecting.
             logger.error("Matrix OAuth refresh before connect failed: %s", exc)
             return False
         return await super().connect(is_reconnect=is_reconnect)
@@ -123,7 +124,7 @@ class OIDCMatrixAdapter(upstream.MatrixAdapter):
                     await asyncio.sleep(0)
             except asyncio.CancelledError:
                 return
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - Keep sync recovery for arbitrary client errors.
                 if self._closing:
                     return
                 if _is_auth_error(exc):
@@ -138,7 +139,7 @@ class OIDCMatrixAdapter(upstream.MatrixAdapter):
                             break
                         except asyncio.CancelledError:
                             return
-                        except Exception as refresh_exc:
+                        except Exception as refresh_exc:  # noqa: BLE001 - Retry any refresh failure until closed.
                             logger.warning("Matrix OAuth refresh failed; retrying in 5s: %s", refresh_exc)
                             await asyncio.sleep(5)
                     continue
