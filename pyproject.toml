@@ -9,5 +9,11 @@ description = "A no-fork OAuth 2.0 refresh extension for Hermes Matrix gateways.
 requires-python = ">=3.11"
 license = {text = "MIT"}
 
+[dependency-groups]
+dev = [
+    "ruff==0.17.2",
+    "ty==0.0.91",
+]
+
 [tool.setuptools.packages.find]
 include = ["hermes_matrix_oidc*"]
